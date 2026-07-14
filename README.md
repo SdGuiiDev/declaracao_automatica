@@ -1,0 +1,1 @@
+# declaracao_automatica

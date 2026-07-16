@@ -1,18 +1,38 @@
 # Importações
 
 import streamlit as st
-import psycopg2 
+import psycopg2
 import tomllib
-import pathlib
+
 from pathlib import Path
 
+
+# ------------------------------------------------------------------- #
+# CONEXÃO COM O BANCO DE DADOS
+# ------------------------------------------------------------------- #
+
+
 def conexao_db():
+
     try:
 
         caminho_config = Path.cwd() / "config.toml"
 
-        with open(caminho_config, "rb") as arquivo:
-            config = tomllib.load(arquivo)
+        if not caminho_config.exists():
+
+            raise FileNotFoundError(
+                f"Arquivo config.toml não encontrado em: "
+                f"{caminho_config}"
+            )
+
+        with open(
+            caminho_config,
+            "rb"
+        ) as arquivo:
+
+            config = tomllib.load(
+                arquivo
+            )
 
         db = config["rhweb"]
 
@@ -24,21 +44,25 @@ def conexao_db():
             password=db["password"],
         )
 
-        print("Banco conectado com sucesso")
-
         cursor = conn.cursor()
 
         return conn, cursor
 
-    except Exception as e:
-        print("Erro ao conectar com o banco de dados:")
-        print(type(e).__name__)
-        print(e)
-        return None, None
-    
-conexao_db()
+    except Exception as erro:
 
-#-----------------------------------------------------------------------------------#
+        st.error(
+            f"Erro ao conectar com o banco de dados: "
+            f"{type(erro).__name__}: {erro}"
+        )
+
+        return None, None
+
+
+# ------------------------------------------------------------------- #
+# BUSCA DE SERVIDORES PELO NOME
+# ------------------------------------------------------------------- #
+
+
 def buscar_nome(nome_servidor):
 
     conn = None
@@ -47,6 +71,10 @@ def buscar_nome(nome_servidor):
     try:
 
         conn, cursor = conexao_db()
+
+        if conn is None or cursor is None:
+
+            return []
 
         partes_nome = nome_servidor.strip().split()
 
@@ -68,13 +96,12 @@ def buscar_nome(nome_servidor):
         )
 
         sql = f"""
-        SELECT
+        SELECT DISTINCT
             nome,
-            cpf,
-            matricula
+            cpf
         FROM dados_servidor
         WHERE {filtro_nome}
-        ORDER BY nome
+        ORDER BY nome, cpf
         """
 
         cursor.execute(
@@ -82,7 +109,9 @@ def buscar_nome(nome_servidor):
             parametros
         )
 
-        return cursor.fetchall()
+        resultados = cursor.fetchall()
+
+        return resultados
 
     except Exception as erro:
 
@@ -95,12 +124,18 @@ def buscar_nome(nome_servidor):
     finally:
 
         if cursor is not None:
+
             cursor.close()
 
         if conn is not None:
+
             conn.close()
 
+
 # ------------------------------------------------------------------- #
+# BUSCA DE MATRÍCULAS PELO CPF
+# ------------------------------------------------------------------- #
+
 
 def buscar_matriculas(cpf_servidor):
 
@@ -111,8 +146,13 @@ def buscar_matriculas(cpf_servidor):
 
         conn, cursor = conexao_db()
 
+        if conn is None or cursor is None:
+
+            return []
+
         sql = """
-        SELECT matricula
+        SELECT DISTINCT
+            matricula
         FROM dados_servidor
         WHERE cpf = %s
         ORDER BY matricula
@@ -125,7 +165,9 @@ def buscar_matriculas(cpf_servidor):
             )
         )
 
-        return cursor.fetchall()
+        matriculas = cursor.fetchall()
+
+        return matriculas
 
     except Exception as erro:
 
@@ -138,12 +180,16 @@ def buscar_matriculas(cpf_servidor):
     finally:
 
         if cursor is not None:
+
             cursor.close()
 
         if conn is not None:
+
             conn.close()
 
 
+# ------------------------------------------------------------------- #
+# TÍTULO DA PÁGINA
 # ------------------------------------------------------------------- #
 
 
@@ -155,39 +201,41 @@ def titulo_pagina():
 
 
 # ------------------------------------------------------------------- #
+# VARIÁVEIS DO SESSION STATE
+# ------------------------------------------------------------------- #
 
 
 def inicializar_variaveis():
 
-    # Inicializa os resultados da busca.
     if "resultados" not in st.session_state:
 
         st.session_state.resultados = []
 
-    # Inicializa o servidor selecionado.
     if "servidor_selecionado" not in st.session_state:
 
         st.session_state.servidor_selecionado = None
 
+    if "nome_pesquisado" not in st.session_state:
 
+        st.session_state.nome_pesquisado = ""
+
+
+# ------------------------------------------------------------------- #
+# FORMULÁRIO DE PESQUISA
 # ------------------------------------------------------------------- #
 
 
 def gerar_tela_pesquisa():
 
-    # Agrupa os campos e envia os dados somente
-    # quando o botão do formulário for clicado.
     with st.form(
         "formulario_busca"
     ):
 
-        # Permite ao usuário informar o nome
-        # utilizado na busca.
         nome_servidor = st.text_input(
-            "Digite aqui o nome da pessoa que você busca:"
+            "Digite aqui o nome da pessoa que você busca:",
+            value=st.session_state.nome_pesquisado
         )
 
-        # Envia os campos presentes no formulário.
         buscar = st.form_submit_button(
             "Buscar servidor",
             type="primary"
@@ -197,19 +245,21 @@ def gerar_tela_pesquisa():
 
 
 # ------------------------------------------------------------------- #
+# VALIDAÇÃO DO NOME
+# ------------------------------------------------------------------- #
 
 
 def validar_nome_servidor(nome_servidor):
 
-    # Remove espaços no início e no final.
     nome_servidor = nome_servidor.strip()
 
-    # Separa o nome pelas palavras digitadas.
     partes_nome = nome_servidor.split()
 
-    # Verifica se o nome possui pelo menos 5 letras.
     quantidade_letras = len(
-        nome_servidor.replace(" ", "")
+        nome_servidor.replace(
+            " ",
+            ""
+        )
     )
 
     if quantidade_letras < 5:
@@ -220,7 +270,6 @@ def validar_nome_servidor(nome_servidor):
 
         return False
 
-    # Verifica se foram informados pelo menos dois nomes.
     if len(partes_nome) < 2:
 
         st.warning(
@@ -232,10 +281,9 @@ def validar_nome_servidor(nome_servidor):
     return True
 
 
-
-#----------------------------------------------------------------#
-
-
+# ------------------------------------------------------------------- #
+# EXECUÇÃO DA BUSCA
+# ------------------------------------------------------------------- #
 
 
 def executar_busca(
@@ -243,13 +291,13 @@ def executar_busca(
         nome_servidor
 ):
 
-    # Executa a busca somente quando
-    # o botão for clicado.
     if not buscar:
+
         return
 
-    # Verifica se o usuário digitou algum nome.
-    if not nome_servidor.strip():
+    nome_servidor = nome_servidor.strip()
+
+    if not nome_servidor:
 
         st.warning(
             "Digite um nome antes de realizar a busca."
@@ -257,10 +305,10 @@ def executar_busca(
 
         st.session_state.resultados = []
         st.session_state.servidor_selecionado = None
+        st.session_state.nome_pesquisado = ""
 
         return
 
-    # Verifica se o nome atende aos requisitos.
     nome_valido = validar_nome_servidor(
         nome_servidor=nome_servidor
     )
@@ -272,17 +320,15 @@ def executar_busca(
 
         return
 
-    # Busca os servidores com o nome informado.
     resultados = buscar_nome(
         nome_servidor=nome_servidor
     )
 
-    # Guarda os resultados entre as atualizações
-    # automáticas do Streamlit.
     st.session_state.resultados = resultados
 
-    # Limpa a seleção feita anteriormente.
     st.session_state.servidor_selecionado = None
+
+    st.session_state.nome_pesquisado = nome_servidor
 
     if resultados:
 
@@ -298,15 +344,16 @@ def executar_busca(
 
 
 # ------------------------------------------------------------------- #
+# SELEÇÃO DO SERVIDOR
+# ------------------------------------------------------------------- #
 
 
 def escolha_de_usuario():
 
     resultados = st.session_state.resultados
 
-    # Não mostra o campo de seleção enquanto
-    # nenhuma busca tiver resultados.
     if not resultados:
+
         return None
 
     servidor_selecionado = st.radio(
@@ -314,62 +361,72 @@ def escolha_de_usuario():
         options=resultados,
         index=None,
         format_func=lambda servidor: (
-            f"{servidor[0]} - CPF: {servidor[1]}"
+            f"{servidor[0]} - CPF: "
+            f"{servidor[1] if servidor[1] else 'Não informado'}"
         )
     )
 
-    # Guarda o servidor selecionado.
     st.session_state.servidor_selecionado = (
         servidor_selecionado
     )
 
-    if servidor_selecionado is not None:
+    if servidor_selecionado is None:
 
-        # Guarda o nome do servidor selecionado.
-        nome_servidor = servidor_selecionado[0]
+        return None
 
-        # Guarda o CPF do servidor selecionado.
-        cpf_servidor = servidor_selecionado[1]
+    nome_servidor = servidor_selecionado[0]
 
-        # Busca todas as matrículas vinculadas
-        # ao CPF do servidor selecionado.
-        matriculas = buscar_matriculas(
-            cpf_servidor=cpf_servidor
+    cpf_servidor = servidor_selecionado[1]
+
+    st.subheader(
+        "Servidor selecionado"
+    )
+
+    st.write(
+        f"**Nome:** {nome_servidor}"
+    )
+
+    st.write(
+        f"**CPF:** "
+        f"{cpf_servidor if cpf_servidor else 'Não informado'}"
+    )
+
+    if not cpf_servidor:
+
+        st.warning(
+            "O servidor selecionado não possui CPF cadastrado. "
+            "Não foi possível consultar as matrículas pelo CPF."
         )
 
-        st.write(
-            "Servidor selecionado:"
-        )
+        return servidor_selecionado
 
-        st.write(
-            f"Nome: {nome_servidor}"
-        )
+    matriculas = buscar_matriculas(
+        cpf_servidor=cpf_servidor
+    )
 
-        st.write(
-            f"CPF: {cpf_servidor}"
-        )
+    st.write(
+        "**Matrículas:**"
+    )
 
-        st.write(
-            "Matrículas:"
-        )
+    if matriculas:
 
-        if matriculas:
+        for matricula in matriculas:
 
-            for matricula in matriculas:
-
-                st.write(
-                    f"- {matricula[0]}"
-                )
-
-        else:
-
-            st.warning(
-                "Nenhuma matrícula foi encontrada."
+            st.write(
+                f"- {matricula[0]}"
             )
+
+    else:
+
+        st.warning(
+            "Nenhuma matrícula foi encontrada."
+        )
 
     return servidor_selecionado
 
 
+# ------------------------------------------------------------------- #
+# FUNÇÃO PRINCIPAL
 # ------------------------------------------------------------------- #
 
 
@@ -396,11 +453,10 @@ def main():
 
 
 # ------------------------------------------------------------------- #
+# EXECUÇÃO DO SISTEMA
+# ------------------------------------------------------------------- #
 
 
 if __name__ == "__main__":
 
     main()
-
-
-#------------------------------------------------------------#

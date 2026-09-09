@@ -37,7 +37,7 @@ def conexao_db():
 
         db = config["rhweb"]
 
-        conn = mariadb.connect(
+        conn = psycopg2.connect(
             host=db["host"],
             port=db["port"],
             dbname=db["dbname"], # -> postgre

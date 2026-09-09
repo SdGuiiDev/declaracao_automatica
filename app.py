@@ -2,6 +2,7 @@
 
 import streamlit as st
 import psycopg2
+import mariadb
 import tomllib
 
 from pathlib import Path
@@ -36,10 +37,11 @@ def conexao_db():
 
         db = config["rhweb"]
 
-        conn = psycopg2.connect(
+        conn = mariadb.connect(
             host=db["host"],
             port=db["port"],
-            dbname=db["dbname"],
+            dbname=db["dbname"], # -> postgre
+            #database=db["database"], # -> mariadb
             user=db["user"],
             password=db["password"],
         )

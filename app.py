@@ -30,7 +30,9 @@ from src.rhweb.scraping import (
     executar_scraping_rhweb
 )
 
-
+from src.risoluto.db_risoluto import (
+    buscar_servidor as buscar_servidor_risoluto
+)
 
 
 
@@ -186,81 +188,6 @@ def conexao_risoluto():
         )
 
         return None, None
-
-
-# ------------------------------------------------------------------- #
-# BUSCA DE SERVIDOR NO RISOLUTO
-# ------------------------------------------------------------------- #
-
-def buscar_servidor_risoluto(valor_busca):
-
-    conn = None
-    cursor = None
-
-    try:
-
-        conn, cursor = conexao_risoluto()
-
-        if conn is None or cursor is None:
-            return []
-
-        valor_busca = str(valor_busca).strip()
-
-        sql = """
-        SELECT
-            u.matricula,
-            u.nome,
-            u.cpf,
-            MAX(fp.data) AS ultima_data
-
-        FROM pk_usuarios AS u
-
-        LEFT JOIN tb_fp_por_profissional AS fp
-            ON fp.matricula = u.matricula
-
-        WHERE
-            u.matricula = ?
-            OR LOWER(u.nome) LIKE LOWER(?)
-
-        GROUP BY
-            u.matricula,
-            u.nome,
-            u.cpf
-
-        ORDER BY
-            u.nome,
-            u.matricula
-        """
-
-        cursor.execute(
-            sql,
-            (
-                valor_busca,
-                f"%{valor_busca}%"
-            )
-        )
-
-        resultados = cursor.fetchall()
-
-        return resultados
-
-    except Exception as erro:
-
-        st.error(
-            f"Erro ao buscar servidor no Risoluto: "
-            f"{type(erro).__name__}: {erro}"
-        )
-
-        return []
-
-    finally:
-
-        if cursor is not None:
-            cursor.close()
-
-        if conn is not None:
-            conn.close()
-
 
 
 

@@ -22,8 +22,13 @@ from src.joaquina.db_joaquina import (
     buscar_servidor as buscar_servidor_joaquina
 )
 
+from src.rhweb.db_rhweb import (
+    buscar_servidor as buscar_servidor_rhweb
+)
 
-
+from src.rhweb.scraping import (
+    executar_scraping_rhweb
+)
 
 
 
@@ -183,82 +188,6 @@ def conexao_risoluto():
         return None, None
 
 
-
-#A busca pelo servidor no joaquina funciona pelo import :
-# resultados = buscar_servidor_joaquina(
-#    valor_busca=valor_busca
-# )
-
-
-# ------------------------------------------------------------------- #
-# BUSCA DE SERVIDOR NO RHWEB
-# ------------------------------------------------------------------- #
-
-def buscar_servidor_rhweb(valor_busca):
-
-    conn = None
-    cursor = None
-
-    try:
-
-        conn, cursor = conexao_rhweb()
-
-        if conn is None or cursor is None:
-            return []
-
-        valor_busca = str(valor_busca).strip()
-
-        sql = """
-        SELECT
-            ds.matricula,
-            ds.nome,
-            ds.cpf,
-            cf.data_admissao
-
-        FROM dados_servidor AS ds
-
-        LEFT JOIN cargo_do_funcionario AS cf
-            ON cf.fk_dados_servidor = ds.id
-
-        WHERE
-            ds.matricula::text = %s
-            OR LOWER(ds.nome) LIKE LOWER(%s)
-
-        ORDER BY
-            ds.nome,
-            ds.matricula
-        """
-
-        cursor.execute(
-            sql,
-            (
-                valor_busca,
-                f"%{valor_busca}%"
-            )
-        )
-
-        resultados = cursor.fetchall()
-
-        return resultados
-
-    except Exception as erro:
-
-        st.error(
-            f"Erro ao buscar servidor no RHweb: "
-            f"{type(erro).__name__}: {erro}"
-        )
-
-        return []
-
-    finally:
-
-        if cursor is not None:
-            cursor.close()
-
-        if conn is not None:
-            conn.close()
-
-
 # ------------------------------------------------------------------- #
 # BUSCA DE SERVIDOR NO RISOLUTO
 # ------------------------------------------------------------------- #
@@ -377,10 +306,10 @@ def inicializar_variaveis():
     # Controla se o sistema está aguardando
     # o nome completo para realizar o scraping
     if "aguardando_nome_completo" not in st.session_state:
-
         st.session_state.aguardando_nome_completo = False
 
-
+    if "todas_matriculas" not in st.session_state:
+        st.session_state.todas_matriculas = False
 
 
 
@@ -826,7 +755,9 @@ def escolha_de_usuario():
 
         # Recupera matrícula, nome e admissão
         matricula = opcao[0]
+
         nome = opcao[1]
+
         admissao = opcao[2]
 
         # Formata a data de admissão
@@ -869,9 +800,15 @@ def escolha_de_usuario():
 
     if matricula_selecionada == "TODAS":
 
+        # Guarda que o usuário deseja todas as matrículas
+        st.session_state.todas_matriculas = True
+
         vinculos_selecionados = vinculos
 
     else:
+
+        # Guarda que o usuário deseja somente uma matrícula
+        st.session_state.todas_matriculas = False
 
         vinculos_selecionados = [
             matricula_selecionada
@@ -899,6 +836,7 @@ def escolha_de_usuario():
     for vinculo in vinculos_selecionados:
 
         matricula = vinculo[0]
+
         admissao = vinculo[2]
 
         # Formata a data de admissão
@@ -1014,34 +952,144 @@ def consultar_vinculos(
 ):
 
     resultados_rhweb = []
+
     resultados_risoluto = []
 
     matriculas_rhweb_nao_encontradas = []
+
     matriculas_risoluto_nao_encontradas = []
 
     # --------------------------------------------------------------- #
     # CONSULTA RHWEB
     # --------------------------------------------------------------- #
 
+    # Guarda os nomes já consultados para evitar
+    # pesquisar a mesma pessoa várias vezes
+    nomes_consultados = []
+
     for vinculo in vinculos_rhweb:
 
-        matricula = vinculo[0]
+        # Recupera o nome vindo do Joaquina
+        nome = vinculo[1]
+
+        # Evita consultar novamente a mesma pessoa
+        if nome in nomes_consultados:
+            continue
+
+        nomes_consultados.append(
+            nome
+        )
+
+        # ----------------------------------------------------------- #
+        # IDENTIFICA AS MATRÍCULAS SELECIONADAS DESTA PESSOA
+        # ----------------------------------------------------------- #
+
+        matriculas_selecionadas = []
+
+        for vinculo_rhweb in vinculos_rhweb:
+
+            if vinculo_rhweb[1] == nome:
+
+                matriculas_selecionadas.append(
+                    str(vinculo_rhweb[0]).strip()
+                )
+
+        # ----------------------------------------------------------- #
+        # PRIMEIRO CONSULTA O BANCO RHWEB PELO NOME
+        # ----------------------------------------------------------- #
+
+        print(
+            f"\n[RHWEB] Consultando banco pelo nome: {nome}"
+        )
 
         resultado = buscar_servidor_rhweb(
-            valor_busca=matricula
+            valor_busca=nome
         )
+
+        print(
+            f"[RHWEB] Resultado do banco antes do scraping: {resultado}"
+)
+
+        # ----------------------------------------------------------- #
+        # CASO NÃO EXISTA NO BANCO, EXECUTA O SCRAPING PELO NOME
+        # ----------------------------------------------------------- #
+
+        if not resultado:
+
+            print(
+                f"[RHWEB] Nenhum dado encontrado."
+                f" Iniciando scraping para: {nome}"
+            )
+
+            with st.spinner(
+                f"Servidor {nome} não encontrado no banco RHweb. "
+                f"Consultando o sistema RHweb..."
+            ):
+
+                resultado_scraping = executar_scraping_rhweb(
+                    nome_servidor=nome
+                )
+
+            print(
+                f"[RHWEB] Retorno do scraping: {resultado_scraping}"
+            )
+
+            # ------------------------------------------------------- #
+            # DEPOIS DO SCRAPING CONSULTA NOVAMENTE PELO NOME
+            # ------------------------------------------------------- #
+
+            resultado = buscar_servidor_rhweb(
+                valor_busca=nome
+            )
+
+            print(
+                f"[RHWEB] Resultado do banco depois do scraping: "
+                f"{resultado}"
+            )
+
+        # ----------------------------------------------------------- #
+        # FILTRA SOMENTE AS MATRÍCULAS ESCOLHIDAS PELO USUÁRIO
+        # ----------------------------------------------------------- #
+
+        matriculas_encontradas = []
 
         if resultado:
 
-            resultados_rhweb.extend(
-                resultado
-            )
+            for registro in resultado:
 
-        else:
+                matricula_resultado = str(
+                    registro[0]
+                ).strip()
 
-            matriculas_rhweb_nao_encontradas.append(
-                matricula
-            )
+                if (
+                    matricula_resultado
+                    in matriculas_selecionadas
+                ):
+
+                    resultados_rhweb.append(
+                        registro
+                    )
+
+                    if (
+                        matricula_resultado
+                        not in matriculas_encontradas
+                    ):
+
+                        matriculas_encontradas.append(
+                            matricula_resultado
+                        )
+
+        # ----------------------------------------------------------- #
+        # IDENTIFICA MATRÍCULAS QUE CONTINUARAM NÃO ENCONTRADAS
+        # ----------------------------------------------------------- #
+
+        for matricula in matriculas_selecionadas:
+
+            if matricula not in matriculas_encontradas:
+
+                matriculas_rhweb_nao_encontradas.append(
+                    matricula
+                )
 
     # --------------------------------------------------------------- #
     # CONSULTA RISOLUTO

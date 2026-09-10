@@ -279,26 +279,69 @@ def obter_sql_dados_do_servidor():
 
 
 def atualizar_upsert_lotacao(
-    cod_lotacao,
-    lotacao,
-    cursor
+        cod_lotacao,
+        lotacao,
+        cursor
 ):
 
-    cod_lotacao = tratar_valor_id(cod_lotacao)
-    lotacao = tratar_valor_id(lotacao)
+    # Trata os valores recebidos
+    cod_lotacao = tratar_valor_id(
+        cod_lotacao
+    )
 
+    lotacao = tratar_valor_id(
+        lotacao
+    )
+
+    # Verifica se os valores são válidos
     if cod_lotacao is None or lotacao is None:
         return None
+
+    # --------------------------------------------------------------- #
+    # VERIFICA SE A LOTAÇÃO JÁ EXISTE PELO NOME
+    # --------------------------------------------------------------- #
+
+    query_busca = """
+        SELECT
+            cod_lotacao
+        FROM pk_lotacoes
+        WHERE
+            TRIM(LOWER(lotacao)) = TRIM(LOWER(%s))
+        LIMIT 1;
+    """
+
+    cursor.execute(
+        query_busca,
+        (
+            lotacao,
+        )
+    )
+
+    resultado = cursor.fetchone()
+
+    # Caso a lotação já exista,
+    # reutiliza o código existente
+    if resultado:
+
+        return resultado[0]
+
+    # --------------------------------------------------------------- #
+    # INSERE OU ATUALIZA PELO CÓDIGO DA LOTAÇÃO
+    # --------------------------------------------------------------- #
 
     query = """
         INSERT INTO pk_lotacoes (
             cod_lotacao,
             lotacao
         )
+
         VALUES (%s, %s)
+
         ON CONFLICT (cod_lotacao)
+
         DO UPDATE SET
             lotacao = EXCLUDED.lotacao
+
         RETURNING cod_lotacao;
     """
 
@@ -313,35 +356,78 @@ def atualizar_upsert_lotacao(
     resultado = cursor.fetchone()
 
     if resultado:
+
         return resultado[0]
 
     return None
-
 
 # In[70]:
 
 
 def atualizar_upsert_cargo(
-    cod_cargo,
-    cargo,
-    cursor
+        cod_cargo,
+        cargo,
+        cursor
 ):
 
-    cod_cargo = tratar_valor_id(cod_cargo)
-    cargo = tratar_valor_id(cargo)
+    # Trata os valores recebidos
+    cod_cargo = tratar_valor_id(
+        cod_cargo
+    )
 
+    cargo = tratar_valor_id(
+        cargo
+    )
+
+    # Verifica se os valores são válidos
     if cod_cargo is None or cargo is None:
         return None
+
+    # --------------------------------------------------------------- #
+    # VERIFICA SE O CARGO JÁ EXISTE PELO NOME
+    # --------------------------------------------------------------- #
+
+    query_busca = """
+        SELECT
+            cod_cargo
+        FROM pk_cargos
+        WHERE
+            TRIM(LOWER(cargo)) = TRIM(LOWER(%s))
+        LIMIT 1;
+    """
+
+    cursor.execute(
+        query_busca,
+        (
+            cargo,
+        )
+    )
+
+    resultado = cursor.fetchone()
+
+    # Caso o cargo já exista,
+    # reutiliza o código existente
+    if resultado:
+
+        return resultado[0]
+
+    # --------------------------------------------------------------- #
+    # INSERE OU ATUALIZA PELO CÓDIGO DO CARGO
+    # --------------------------------------------------------------- #
 
     query = """
         INSERT INTO pk_cargos (
             cod_cargo,
             cargo
         )
+
         VALUES (%s, %s)
+
         ON CONFLICT (cod_cargo)
+
         DO UPDATE SET
             cargo = EXCLUDED.cargo
+
         RETURNING cod_cargo;
     """
 
@@ -356,6 +442,7 @@ def atualizar_upsert_cargo(
     resultado = cursor.fetchone()
 
     if resultado:
+
         return resultado[0]
 
     return None

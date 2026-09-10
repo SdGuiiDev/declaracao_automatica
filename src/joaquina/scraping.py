@@ -77,10 +77,10 @@ import pandas as pd
 import psycopg2
 
 # Permite importar funções de arquivos Jupyter Notebook.
-import import_ipynb
+#import import_ipynb
 
 # Importa a função responsável pela inserção no banco.
-from db_joaquina import inserir_dados
+from .db_joaquina import inserir_dados
 
 
 # # def localizar_raiz_projeto

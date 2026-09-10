@@ -1,12 +1,26 @@
-# Importações
+# Importações de bibliotecas
 
 import streamlit as st
-import psycopg2
-import mariadb
 import tomllib
 
 from pathlib import Path
 
+
+#Importações de banco de dados
+import psycopg2
+import mariadb
+
+
+
+
+# Importações do banco de dados e do Scraping do Joaquina
+from src.joaquina.scraping import (
+    executar_scraping_joaquina
+)
+
+from src.joaquina.db_joaquina import (
+    buscar_servidor as buscar_servidor_joaquina
+)
 
 
 
@@ -170,82 +184,10 @@ def conexao_risoluto():
 
 
 
-
-
-
-
-    
-
-
-
-
-
-
-
-
-# ------------------------------------------------------------------- #
-# BUSCA DE SERVIDOR NO JOAQUINA
-# ------------------------------------------------------------------- #
-
-def buscar_servidor_joaquina(valor_busca):
-
-    conn = None
-    cursor = None
-
-    try:
-
-        conn, cursor = conexao_joaquina()
-
-        if conn is None or cursor is None:
-            return []
-
-        valor_busca = str(valor_busca).strip()
-
-        sql = """
-        SELECT
-            matricula,
-            nome,
-            admissao
-
-        FROM dados_do_servidor
-
-        WHERE
-            TRIM(matricula::text) = %s
-            OR LOWER(nome) LIKE LOWER(%s)
-
-        ORDER BY
-            nome,
-            matricula
-        """
-
-        cursor.execute(
-            sql,
-            (
-                valor_busca,
-                f"%{valor_busca}%"
-            )
-        )
-
-        resultados = cursor.fetchall()
-
-        return resultados
-
-    except Exception as erro:
-
-        st.error(
-            f"Erro ao buscar servidor no Joaquina: "
-            f"{type(erro).__name__}: {erro}"
-        )
-
-        return []
-
-    finally:
-
-        if cursor is not None:
-            cursor.close()
-
-        if conn is not None:
-            conn.close()
+#A busca pelo servidor no joaquina funciona pelo import :
+# resultados = buscar_servidor_joaquina(
+#    valor_busca=valor_busca
+# )
 
 
 # ------------------------------------------------------------------- #
@@ -432,7 +374,11 @@ def inicializar_variaveis():
     if "valor_pesquisado" not in st.session_state:
         st.session_state.valor_pesquisado = ""
 
+    # Controla se o sistema está aguardando
+    # o nome completo para realizar o scraping
+    if "aguardando_nome_completo" not in st.session_state:
 
+        st.session_state.aguardando_nome_completo = False
 
 
 
@@ -486,12 +432,10 @@ def gerar_tela_pesquisa():
 
 def validar_valor_busca(valor_busca):
 
+    # Remove espaços no início e no final
     valor_busca = valor_busca.strip()
 
-    # --------------------------------------------------------------- #
-    # CAMPO VAZIO
-    # --------------------------------------------------------------- #
-
+    # Verifica se algum valor foi informado
     if not valor_busca:
 
         st.warning(
@@ -500,12 +444,10 @@ def validar_valor_busca(valor_busca):
 
         return False
 
-    # --------------------------------------------------------------- #
-    # BUSCA POR MATRÍCULA
-    # --------------------------------------------------------------- #
-
+    # Caso seja uma matrícula
     if valor_busca.isdigit():
 
+        # Verifica tamanho mínimo da matrícula
         if len(valor_busca) < 3:
 
             st.warning(
@@ -516,35 +458,34 @@ def validar_valor_busca(valor_busca):
 
         return True
 
-    # --------------------------------------------------------------- #
-    # BUSCA POR NOME
-    # --------------------------------------------------------------- #
-
+    # Divide o nome digitado em partes
     partes_nome = valor_busca.split()
 
-    quantidade_letras = len(
-        valor_busca.replace(
-            " ",
-            ""
-        )
-    )
-
-    if quantidade_letras < 5:
-
-        st.warning(
-            "O nome deve possuir pelo menos 5 letras."
-        )
-
-        return False
-
+    # Exige pelo menos duas partes do nome
     if len(partes_nome) < 2:
 
         st.warning(
-            "Digite pelo menos o nome e o sobrenome."
+            "Digite pelo menos duas partes do nome."
         )
 
         return False
 
+    # Soma a quantidade de letras digitadas
+    quantidade_letras = sum(
+        len(parte)
+        for parte in partes_nome
+    )
+
+    # Evita pesquisas muito genéricas
+    if quantidade_letras < 5:
+
+        st.warning(
+            "Digite mais letras do nome para realizar a busca."
+        )
+
+        return False
+
+    # Pesquisa válida
     return True
 
 
@@ -568,11 +509,14 @@ def executar_busca(
         valor_busca
 ):
 
+    # Verifica se o botão de busca foi pressionado
     if not buscar:
         return
 
+    # Remove espaços no início e no final da pesquisa
     valor_busca = valor_busca.strip()
 
+    # Verifica se algum valor foi informado
     if not valor_busca:
 
         st.warning(
@@ -585,10 +529,12 @@ def executar_busca(
 
         return
 
+    # Valida o nome ou matrícula informada
     valor_valido = validar_valor_busca(
         valor_busca=valor_busca
     )
 
+    # Caso o valor seja inválido
     if not valor_valido:
 
         st.session_state.resultados = []
@@ -596,13 +542,147 @@ def executar_busca(
 
         return
 
+    # --------------------------------------------------------------- #
+    # PRIMEIRO CONSULTA O BANCO DE DADOS
+    # --------------------------------------------------------------- #
+
     resultados = buscar_servidor_joaquina(
         valor_busca=valor_busca
     )
 
+    # --------------------------------------------------------------- #
+    # CASO O BANCO TENHA ENCONTRADO RESULTADOS
+    # --------------------------------------------------------------- #
+
+    if resultados:
+
+        # Salva os resultados encontrados
+        st.session_state.resultados = resultados
+
+        # Limpa qualquer servidor selecionado anteriormente
+        st.session_state.servidor_selecionado = None
+
+        # Guarda o valor pesquisado
+        st.session_state.valor_pesquisado = valor_busca
+
+        # Como encontrou no banco,
+        # não é mais necessário aguardar nome completo
+        st.session_state.aguardando_nome_completo = False
+
+        # Informa a quantidade de vínculos encontrados
+        st.success(
+            f"{len(resultados)} vínculo(s) encontrado(s)."
+        )
+
+        # Encerra a função para impedir o scraping
+        return
+
+    # --------------------------------------------------------------- #
+    # CASO A PESQUISA TENHA SIDO FEITA POR MATRÍCULA
+    # --------------------------------------------------------------- #
+
+    if valor_busca.isdigit():
+
+        # O scraping não deve ser feito utilizando matrícula
+        st.warning(
+            "A matrícula não foi localizada no banco. "
+            "Pesquise pelo nome do servidor."
+        )
+
+        st.session_state.resultados = []
+        st.session_state.servidor_selecionado = None
+        st.session_state.valor_pesquisado = valor_busca
+
+        return
+
+    # --------------------------------------------------------------- #
+    # PRIMEIRA BUSCA POR NOME SEM RESULTADOS
+    # --------------------------------------------------------------- #
+
+    if not st.session_state.aguardando_nome_completo:
+
+        # Informa que o nome não existe no banco
+        st.warning(
+            "Nenhum servidor correspondente foi encontrado "
+            "no banco de dados."
+        )
+
+        # Solicita que o usuário informe o nome completo
+        st.info(
+            "Informe o nome completo do servidor para realizar "
+            "uma consulta no sistema Joaquina."
+        )
+
+        # Agora o sistema passa a aguardar uma nova pesquisa
+        # contendo o nome completo
+        st.session_state.aguardando_nome_completo = True
+
+        # Limpa os resultados anteriores
+        st.session_state.resultados = []
+
+        # Limpa qualquer seleção anterior
+        st.session_state.servidor_selecionado = None
+
+        # Mantém o valor pesquisado no campo
+        st.session_state.valor_pesquisado = valor_busca
+
+        # Não executa scraping nesta primeira tentativa
+        return
+
+    # --------------------------------------------------------------- #
+    # SEGUNDA BUSCA SEM RESULTADOS
+    # AGORA O USUÁRIO INFORMOU O NOME COMPLETO
+    # --------------------------------------------------------------- #
+
+    with st.spinner(
+        "Servidor não encontrado no banco. "
+        "Consultando o sistema Joaquina..."
+    ):
+
+        # Executa o scraping utilizando o nome informado
+        resultado_scraping = executar_scraping_joaquina(
+            nome_servidor=valor_busca
+        )
+
+    # --------------------------------------------------------------- #
+    # VERIFICA SE O SCRAPING APRESENTOU ERRO
+    # --------------------------------------------------------------- #
+
+    if resultado_scraping is None:
+
+        st.error(
+            "Não foi possível concluir a consulta no Joaquina."
+        )
+
+        st.session_state.resultados = []
+        st.session_state.servidor_selecionado = None
+        st.session_state.valor_pesquisado = valor_busca
+
+        return
+
+    # --------------------------------------------------------------- #
+    # DEPOIS DO SCRAPING CONSULTA O BANCO NOVAMENTE
+    # --------------------------------------------------------------- #
+
+    resultados = buscar_servidor_joaquina(
+        valor_busca=valor_busca
+    )
+
+    # Salva os resultados da nova consulta
     st.session_state.resultados = resultados
+
+    # Limpa qualquer seleção anterior
     st.session_state.servidor_selecionado = None
+
+    # Guarda o nome pesquisado
     st.session_state.valor_pesquisado = valor_busca
+
+    # Finaliza a espera pelo nome completo
+    st.session_state.aguardando_nome_completo = False
+
+    # --------------------------------------------------------------- #
+    # EXIBE O RESULTADO FINAL
+    # --------------------------------------------------------------- #
 
     if resultados:
 
@@ -624,16 +704,18 @@ def executar_busca(
 
 
 
-
 # ------------------------------------------------------------------- #
 # SELEÇÃO DO SERVIDOR
 # ------------------------------------------------------------------- #
 
 def escolha_de_usuario():
 
+    # Recupera os resultados armazenados na sessão
     resultados = st.session_state.resultados
 
+    # Caso não existam resultados
     if not resultados:
+
         return None
 
     # --------------------------------------------------------------- #
@@ -642,12 +724,29 @@ def escolha_de_usuario():
 
     nomes_encontrados = []
 
+    # Percorre todos os resultados encontrados
     for resultado in resultados:
 
+        # Recupera o nome do servidor
         nome = resultado[1]
 
-        if nome not in nomes_encontrados:
-            nomes_encontrados.append(nome)
+        # Verifica se o nome existe
+        # e evita nomes duplicados na lista
+        if nome and nome not in nomes_encontrados:
+
+            nomes_encontrados.append(
+                nome
+            )
+
+    # Caso nenhum nome válido tenha sido encontrado
+    if not nomes_encontrados:
+
+        st.warning(
+            "O servidor foi encontrado, mas o nome "
+            "não está disponível no banco de dados."
+        )
+
+        return None
 
     # --------------------------------------------------------------- #
     # SE HOUVER MAIS DE UM SERVIDOR, ESCOLHE PRIMEIRO O NOME
@@ -661,20 +760,44 @@ def escolha_de_usuario():
             index=None
         )
 
+        # Aguarda o usuário selecionar um servidor
         if nome_selecionado is None:
+
             return None
 
+        vinculos = []
+
+        # Filtra somente os vínculos pertencentes
+        # ao servidor selecionado
+        for resultado in resultados:
+
+            if resultado[1] == nome_selecionado:
+
+                vinculos.append(
+                    resultado
+                )
+
+    # Caso somente um servidor tenha sido encontrado
+    else:
+
+        # Define automaticamente o único servidor encontrado
+        nome_selecionado = nomes_encontrados[0]
+
+        # Recupera somente os vínculos desse servidor
         vinculos = []
 
         for resultado in resultados:
 
             if resultado[1] == nome_selecionado:
-                vinculos.append(resultado)
 
-    else:
+                vinculos.append(
+                    resultado
+                )
 
-        nome_selecionado = nomes_encontrados[0]
-        vinculos = resultados
+        # Mostra ao usuário qual servidor foi encontrado
+        st.write(
+            f"**Servidor encontrado:** {nome_selecionado}"
+        )
 
     # --------------------------------------------------------------- #
     # MONTA AS OPÇÕES DE MATRÍCULA
@@ -682,8 +805,13 @@ def escolha_de_usuario():
 
     opcoes = vinculos.copy()
 
+    # Caso o servidor possua mais de uma matrícula,
+    # adiciona a opção para utilizar todas
     if len(vinculos) > 1:
-        opcoes.append("TODAS")
+
+        opcoes.append(
+            "TODAS"
+        )
 
     # --------------------------------------------------------------- #
     # FORMATA O TEXTO DAS OPÇÕES
@@ -691,21 +819,30 @@ def escolha_de_usuario():
 
     def formatar_opcao(opcao):
 
+        # Caso seja selecionada a opção de todas as matrículas
         if opcao == "TODAS":
+
             return "Todas as matrículas"
 
+        # Recupera matrícula, nome e admissão
         matricula = opcao[0]
+        nome = opcao[1]
         admissao = opcao[2]
 
+        # Formata a data de admissão
         if admissao:
+
             admissao_formatada = admissao.strftime(
                 "%d/%m/%Y"
             )
 
         else:
+
             admissao_formatada = "Não informada"
 
+        # Retorna o texto exibido para o usuário
         return (
+            f"{nome} - "
             f"Matrícula: {matricula} - "
             f"Admissão: {admissao_formatada}"
         )
@@ -721,7 +858,9 @@ def escolha_de_usuario():
         format_func=formatar_opcao
     )
 
+    # Aguarda o usuário selecionar uma matrícula
     if matricula_selecionada is None:
+
         return None
 
     # --------------------------------------------------------------- #
@@ -738,6 +877,7 @@ def escolha_de_usuario():
             matricula_selecionada
         ]
 
+    # Salva os vínculos escolhidos na sessão
     st.session_state.servidor_selecionado = (
         vinculos_selecionados
     )
@@ -750,15 +890,18 @@ def escolha_de_usuario():
         "Servidor selecionado"
     )
 
+    # Mostra o nome do servidor selecionado
     st.write(
         f"**Nome:** {nome_selecionado}"
     )
 
+    # Mostra todas as matrículas selecionadas
     for vinculo in vinculos_selecionados:
 
         matricula = vinculo[0]
         admissao = vinculo[2]
 
+        # Formata a data de admissão
         if admissao:
 
             admissao_formatada = admissao.strftime(
@@ -766,6 +909,7 @@ def escolha_de_usuario():
             )
 
         else:
+
             admissao_formatada = "Não informada"
 
         st.write(
@@ -776,6 +920,7 @@ def escolha_de_usuario():
             f"**Admissão:** {admissao_formatada}"
         )
 
+    # Retorna os vínculos selecionados pelo usuário
     return vinculos_selecionados
 
 

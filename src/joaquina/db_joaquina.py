@@ -605,51 +605,124 @@ def inserir_dados(df_dados_do_servidor):
 
 def buscar_servidor(valor_busca):
 
+    # Inicializa as variáveis de conexão
     conn = None
     cursor = None
 
     try:
 
+        # Abre a conexão com o banco de dados
         conn, cursor = conexao_db()
 
-        valor_busca = str(valor_busca).strip()
+        # Converte o valor pesquisado para texto
+        # e remove espaços no início e no final
+        valor_busca = str(
+            valor_busca
+        ).strip()
 
-        sql = """
-        SELECT
-            matricula,
-            nome,
-            admissao
-        FROM dados_do_servidor
-        WHERE
-            matricula::text =%s
-            OR LOWER (nome) LIKE LOWER (%s)
-        ORDER BY nome
-        """
+        # Verifica se a pesquisa foi feita por matrícula
+        if valor_busca.isdigit():
 
+            # Consulta utilizando a matrícula exata
+            sql = """
+            SELECT
+                matricula,
+                nome,
+                admissao
+            FROM dados_do_servidor
+            WHERE
+                TRIM(matricula::text) = %s
+            ORDER BY
+                nome,
+                matricula
+            """
+
+            parametros = (
+                valor_busca,
+            )
+
+        # Caso a pesquisa tenha sido feita por nome
+        else:
+
+            # Divide o nome pesquisado em partes
+            termos = valor_busca.split()
+
+            # Cria uma condição para cada parte digitada
+            condicoes = []
+
+            # Cria a lista que receberá os parâmetros
+            parametros = []
+
+            # Percorre cada parte do nome digitado
+            for termo in termos:
+
+                # Exige que cada parte digitada esteja presente no nome
+                condicoes.append(
+                    "LOWER(nome) LIKE LOWER(%s)"
+                )
+
+                # Adiciona o termo para utilização na consulta
+                parametros.append(
+                    f"%{termo}%"
+                )
+
+            # Junta as condições utilizando AND
+            condicao_nome = " AND ".join(
+                condicoes
+            )
+
+            # Monta a consulta utilizando todas as partes digitadas
+            sql = f"""
+            SELECT
+                matricula,
+                nome,
+                admissao
+            FROM dados_do_servidor
+            WHERE
+                {condicao_nome}
+            ORDER BY
+                nome,
+                matricula
+            """
+
+            # Converte os parâmetros para tupla
+            parametros = tuple(
+                parametros
+            )
+
+        # Executa a consulta
         cursor.execute(
             sql,
-            (valor_busca, f"%{valor_busca}%")
+            parametros
         )
 
+        # Busca todos os registros encontrados
         resultados = cursor.fetchall()
 
+        # Retorna os resultados encontrados
         return resultados
 
     except Exception as erro:
 
-        print(f"Erro ao buscar servidor \n{type(erro).__name__}: {erro}")
+        # Mostra o erro caso a busca falhe
+        print(
+            f"Erro ao buscar servidor\n"
+            f"{type(erro).__name__}: {erro}"
+        )
 
+        # Retorna uma lista vazia
         return []
 
     finally:
 
+        # Fecha a conexão com o banco de dados
         fechar_conexao(
             conn=conn,
             cursor=cursor
         )
 
 
-# ## def teste
+
 
 # In[80]:
 

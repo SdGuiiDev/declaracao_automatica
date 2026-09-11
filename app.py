@@ -238,6 +238,56 @@ def inicializar_variaveis():
     if "todas_matriculas" not in st.session_state:
         st.session_state.todas_matriculas = False
 
+    if "declaracao_selecionada" not in st.session_state:
+        st.session_state.declaracao_selecionada = None
+
+
+
+
+
+
+
+
+
+
+def gerar_tela_selecao_declaracao():
+
+    st.title(
+        "Selecione a declaração"
+    )
+
+    declaracao = st.radio(
+        "Tipo de declaração:",
+        [
+            "CTD",
+            "CONCURSADO",
+            "ESTAGIÁRIO"
+        ],
+        index=None
+    )
+
+    if st.button(
+        "Continuar",
+        type="primary"
+    ):
+
+        if declaracao is None:
+
+            st.warning(
+                "Selecione uma declaração."
+            )
+
+            return False
+
+        st.session_state.declaracao_selecionada = declaracao
+
+        st.rerun()
+
+    return False
+
+
+
+
 
 
 
@@ -1200,9 +1250,15 @@ def processar_servidor_selecionado(
 
 def main():
 
-    titulo_pagina()
-
     inicializar_variaveis()
+
+    if st.session_state.declaracao_selecionada is None:
+
+        gerar_tela_selecao_declaracao()
+
+        return
+
+    titulo_pagina()
 
     buscar, valor_busca = gerar_tela_pesquisa()
 
